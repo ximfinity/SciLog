@@ -6,7 +6,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scilog.app.domain.model.Shot
 import com.scilog.app.domain.model.Weight
+import com.scilog.app.presentation.theme.LocalAppIsDark
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.*
@@ -94,13 +97,16 @@ fun WeightFullChart(
 ) {
     if (weights.isEmpty()) return
 
-    val primaryColor   = MaterialTheme.colorScheme.primary
-    val secondaryColor = MaterialTheme.colorScheme.secondary
-    val tertiaryColor  = MaterialTheme.colorScheme.tertiary
-    val onSurface      = MaterialTheme.colorScheme.onSurface
-    val goalColor      = Color(0xFF4F6B57)
-    val textMeasurer   = rememberTextMeasurer()
-    val dateFmt        = remember { SimpleDateFormat("M/d", Locale.US) }
+    val isDark        = LocalAppIsDark.current
+    val onSurface     = MaterialTheme.colorScheme.onSurface
+    val chartBg       = if (isDark) Color(0xFF1C1915) else Color(0xFFF5F0E7)
+    val charcoal      = if (isDark) Color(0xFFE8E3D8) else Color(0xFF2B2722)
+    val eucalyptus    = Color(0xFF4F6B57)
+    val shotLineColor = Color(0xFF8B6B2B)
+    val goalColor     = Color(0xFF2D5A27).copy(alpha = 0.60f)
+    val textMeasurer  = rememberTextMeasurer()
+    val monthFmt      = remember { SimpleDateFormat("MMM", Locale.US) }
+    val weekFmt       = remember { SimpleDateFormat("M/d", Locale.US) }
 
     val sorted  = weights.sortedBy { it.timestampMs }
     val daily   = dailyStats(sorted)
@@ -119,9 +125,17 @@ fun WeightFullChart(
         val padL = 50f
         val padR = 16f
         val padT = 20f
-        val padB = 32f
+        val padB = 44f
         val chartW = size.width - padL - padR
         val chartH = size.height - padT - padB
+
+        // ── Rounded-rect background ───────────────────────────────────────
+        drawRoundRect(
+            color        = chartBg,
+            topLeft      = Offset(0f, 0f),
+            size         = size,
+            cornerRadius = CornerRadius(12f, 12f)
+        )
 
         val minTs = sorted.first().timestampMs
         val maxTs = maxOf(sorted.last().timestampMs, System.currentTimeMillis())
@@ -138,8 +152,10 @@ fun WeightFullChart(
         val wMax    = wMaxRaw + wPad
         val wRange  = (wMax - wMin).coerceAtLeast(0.1)
 
-        fun xOf(ts: Long)      = padL + ((ts - minTs) / tsRange * chartW).toFloat()
-        fun yOf(lbs: Double)   = padT + chartH - ((lbs - wMin) / wRange * chartH).toFloat()
+        fun xOf(ts: Long)    = padL + ((ts - minTs) / tsRange * chartW).toFloat()
+        fun yOf(lbs: Double) = padT + chartH - ((lbs - wMin) / wRange * chartH).toFloat()
+
+        val dotGridEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 7f))
 
         // ── Y-axis grid lines and labels ──────────────────────────────────
         val labelStyle = TextStyle(fontSize = 9.sp, color = onSurface.copy(alpha = 0.45f))
@@ -149,10 +165,11 @@ fun WeightFullChart(
             val lbs = wMin + i * gridStep
             val y   = yOf(lbs)
             drawLine(
-                color       = onSurface.copy(alpha = 0.07f),
+                color       = charcoal.copy(0.09f),
                 start       = Offset(padL, y),
                 end         = Offset(padL + chartW, y),
-                strokeWidth = 0.8f
+                strokeWidth = 0.8f,
+                pathEffect  = dotGridEffect
             )
             val m = textMeasurer.measure("%.0f".format(lbs), labelStyle)
             drawText(m, topLeft = Offset(padL - m.size.width - 4f, y - m.size.height / 2f))
@@ -160,29 +177,50 @@ fun WeightFullChart(
 
         // X-axis baseline
         drawLine(
-            color       = onSurface.copy(alpha = 0.2f),
+            color       = charcoal.copy(alpha = 0.20f),
             start       = Offset(padL, padT + chartH),
             end         = Offset(padL + chartW, padT + chartH),
             strokeWidth = 1.2f
         )
 
-        // ── X-axis weekly ticks and labels ────────────────────────────────
-        val weekMs  = 7L * 86_400_000L
+        // ── X-axis ticks: monthly if range >= 50 days, else weekly ────────
+        val rangeDays = (maxTs - minTs) / 86_400_000L
         val tickStyle = TextStyle(fontSize = 8.sp, color = onSurface.copy(alpha = 0.4f))
-        var tickMs = minTs
-        while (tickMs <= maxTs) {
-            val tx = xOf(tickMs)
-            drawLine(onSurface.copy(0.15f), Offset(tx, padT + chartH), Offset(tx, padT + chartH + 4f), 1f)
-            val m = textMeasurer.measure(dateFmt.format(Date(tickMs)), tickStyle)
-            drawText(m, topLeft = Offset(tx - m.size.width / 2f, padT + chartH + 5f))
-            tickMs += weekMs
+
+        if (rangeDays >= 50) {
+            // Monthly ticks: first day of each month in the range
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = minTs
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+            // Advance to first month-start that is >= minTs
+            if (cal.timeInMillis < minTs) cal.add(Calendar.MONTH, 1)
+            while (cal.timeInMillis <= maxTs) {
+                val tx = xOf(cal.timeInMillis)
+                drawLine(charcoal.copy(0.15f), Offset(tx, padT + chartH), Offset(tx, padT + chartH + 4f), 1f)
+                val m = textMeasurer.measure(monthFmt.format(cal.time), tickStyle)
+                drawText(m, topLeft = Offset(tx - m.size.width / 2f, padT + chartH + 5f))
+                cal.add(Calendar.MONTH, 1)
+            }
+        } else {
+            // Weekly ticks
+            val weekMs = 7L * 86_400_000L
+            var tickMs = minTs
+            while (tickMs <= maxTs) {
+                val tx = xOf(tickMs)
+                drawLine(charcoal.copy(0.15f), Offset(tx, padT + chartH), Offset(tx, padT + chartH + 4f), 1f)
+                val m = textMeasurer.measure(weekFmt.format(Date(tickMs)), tickStyle)
+                drawText(m, topLeft = Offset(tx - m.size.width / 2f, padT + chartH + 5f))
+                tickMs += weekMs
+            }
         }
 
         // ── Goal weight horizontal line ───────────────────────────────────
         if (targetWeightLbs != null) {
             val y = yOf(targetWeightLbs)
             drawLine(
-                color       = goalColor.copy(alpha = 0.7f),
+                color       = goalColor,
                 start       = Offset(padL, y),
                 end         = Offset(padL + chartW, y),
                 strokeWidth = 1.5f,
@@ -196,18 +234,18 @@ fun WeightFullChart(
         }
 
         // ── Shot markers ──────────────────────────────────────────────────
-        val shotStyle = TextStyle(fontSize = 7.5.sp, color = tertiaryColor, fontWeight = FontWeight.SemiBold)
+        val shotLabelStyle = TextStyle(fontSize = 7.5.sp, color = shotLineColor, fontWeight = FontWeight.SemiBold)
         shots.filter { it.timestampMs in minTs..maxTs }.forEach { shot ->
             val x = xOf(shot.timestampMs)
             drawLine(
-                color       = tertiaryColor.copy(alpha = 0.6f),
+                color       = shotLineColor.copy(alpha = 0.6f),
                 start       = Offset(x, padT),
                 end         = Offset(x, padT + chartH),
                 strokeWidth = 1.2f,
                 pathEffect  = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
             )
-            val sm = textMeasurer.measure("${shot.doseMg}mg", shotStyle)
-            drawText(sm, topLeft = Offset(x + 2f, padT + 2f))
+            val sm = textMeasurer.measure("${shot.doseMg}mg", shotLabelStyle)
+            drawText(sm, topLeft = Offset(x + 2f, padT + chartH + 20f))
         }
 
         // ── Projection line ───────────────────────────────────────────────
@@ -231,7 +269,7 @@ fun WeightFullChart(
             }
             drawPath(
                 path   = projPath,
-                color  = goalColor.copy(alpha = 0.5f),
+                color  = eucalyptus.copy(alpha = 0.40f),
                 style  = Stroke(
                     width      = 1.8f,
                     cap        = StrokeCap.Round,
@@ -248,25 +286,16 @@ fun WeightFullChart(
                     val yTop  = yOf(ds.maxLbs)
                     val yBot  = yOf(ds.minLbs)
                     drawLine(
-                        color       = primaryColor.copy(alpha = 0.3f),
+                        color       = eucalyptus.copy(alpha = 0.22f),
                         start       = Offset(x, yTop),
                         end         = Offset(x, yBot),
                         strokeWidth = 2f,
                         cap         = StrokeCap.Round
                     )
-                    drawLine(primaryColor.copy(0.3f), Offset(x - 3f, yTop), Offset(x + 3f, yTop), 1.5f)
-                    drawLine(primaryColor.copy(0.3f), Offset(x - 3f, yBot), Offset(x + 3f, yBot), 1.5f)
+                    drawLine(eucalyptus.copy(0.22f), Offset(x - 3f, yTop), Offset(x + 3f, yTop), 1.5f)
+                    drawLine(eucalyptus.copy(0.22f), Offset(x - 3f, yBot), Offset(x + 3f, yBot), 1.5f)
                 }
             }
-        }
-
-        // ── Individual scatter dots ───────────────────────────────────────
-        sorted.forEach { w ->
-            drawCircle(
-                color  = primaryColor.copy(alpha = 0.25f),
-                radius = 3f,
-                center = Offset(xOf(w.timestampMs), yOf(w.weightLbs))
-            )
         }
 
         // ── Trend line (linear regression) ───────────────────────────────
@@ -276,7 +305,7 @@ fun WeightFullChart(
             val y0 = yOf(regression.yAt(minTs.toDouble()).coerceIn(wMin, wMax))
             val y1 = yOf(regression.yAt(maxTs.toDouble()).coerceIn(wMin, wMax))
             drawLine(
-                color       = secondaryColor.copy(alpha = 0.7f),
+                color       = eucalyptus.copy(alpha = 0.55f),
                 start       = Offset(x0, y0),
                 end         = Offset(x1, y1),
                 strokeWidth = 1.8f,
@@ -296,7 +325,7 @@ fun WeightFullChart(
             drawPath(
                 fillPath,
                 Brush.verticalGradient(
-                    listOf(primaryColor.copy(0.22f), primaryColor.copy(0.02f)),
+                    listOf(eucalyptus.copy(0.18f), eucalyptus.copy(0.01f)),
                     startY = padT, endY = padT + chartH
                 )
             )
@@ -304,14 +333,17 @@ fun WeightFullChart(
                 moveTo(xOf(daily.first().dayMs), yOf(daily.first().avgLbs))
                 daily.drop(1).forEach { lineTo(xOf(it.dayMs), yOf(it.avgLbs)) }
             }
-            drawPath(linePath, primaryColor, style = Stroke(2.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(linePath, eucalyptus, style = Stroke(2.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
 
-        // ── Start and end dot bookmarks ───────────────────────────────────
-        val startDot = daily.first()
-        val endDot   = daily.last()
-        drawDot(xOf(startDot.dayMs), yOf(startDot.avgLbs), onSurface, primaryColor, 6f)
-        drawDot(xOf(endDot.dayMs), yOf(endDot.avgLbs), primaryColor, Color.White, 7f)
+        // ── Open-circle day markers at each daily average point ───────────
+        val ivoryFill = if (isDark) Color(0xFF1C1915) else Color(0xFFF5F0E7)
+        daily.forEach { ds ->
+            val cx = xOf(ds.dayMs)
+            val cy = yOf(ds.avgLbs)
+            drawCircle(eucalyptus, radius = 3.5f, center = Offset(cx, cy))
+            drawCircle(ivoryFill, radius = 3.5f - 1.2f, center = Offset(cx, cy))
+        }
     }
 }
 

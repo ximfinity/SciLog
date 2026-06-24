@@ -23,13 +23,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.scilog.app.core.util.DateTimeUtils
 import com.scilog.app.domain.usecase.weight.GetWeightGuidanceUseCase
+import com.scilog.app.presentation.theme.LocalAppIsDark
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -165,7 +168,12 @@ fun WeightScreen(onBack: (() -> Unit)? = null, viewModel: WeightViewModel = hilt
 
                 // The chart
                 item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (LocalAppIsDark.current) MaterialTheme.colorScheme.surface else Color(0xFFF5F0E7)
+                        )
+                    ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             WeightFullChart(
                                 weights         = filteredWeights,
@@ -182,10 +190,40 @@ fun WeightScreen(onBack: (() -> Unit)? = null, viewModel: WeightViewModel = hilt
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment     = Alignment.CenterVertically
                             ) {
-                                ChartLegendDot(MaterialTheme.colorScheme.primary, "Daily avg")
-                                if (state.showTrendLine) ChartLegendDash(MaterialTheme.colorScheme.secondary, "Trend")
-                                if (state.showProjection) ChartLegendDash(Color(0xFF4F6B57), "Projection")
-                                if (state.targetWeightLbs != null) ChartLegendDash(Color(0xFF4F6B57), "Goal")
+                                ChartLegendDot(Color(0xFF4F6B57), "Daily avg")
+                                if (state.showTrendLine) ChartLegendDash(Color(0xFF4F6B57).copy(alpha = 0.55f), "Trend")
+                                if (state.showProjection) ChartLegendDash(Color(0xFF4F6B57).copy(alpha = 0.40f), "Projection")
+                                if (state.targetWeightLbs != null) ChartLegendDash(Color(0xFF2D5A27).copy(alpha = 0.60f), "Goal")
+                            }
+
+                            // Stats row
+                            if (filteredWeights.size >= 2) {
+                                val firstLbs = filteredWeights.first().weightLbs
+                                val lastLbs  = filteredWeights.last().weightLbs
+                                val deltaLbs = lastLbs - firstLbs
+                                val deltaPct = deltaLbs / firstLbs * 100.0
+                                val latestDoseMg = filteredShots.lastOrNull()?.doseMg
+
+                                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(0.4f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    WeightStatCol(
+                                        value = "%+.1f lbs".format(deltaLbs),
+                                        label = "CHANGE"
+                                    )
+                                    WeightStatCol(
+                                        value = "%+.1f%%".format(deltaPct),
+                                        label = "BODY WT"
+                                    )
+                                    if (latestDoseMg != null) {
+                                        WeightStatCol(
+                                            value = "%.1f mg".format(latestDoseMg),
+                                            label = "CURRENT DOSE"
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -341,5 +379,15 @@ private fun ChartLegendDash(color: androidx.compose.ui.graphics.Color, label: St
             drawLine(color = color, start = Offset(0f, size.height / 2), end = Offset(size.width, size.height / 2), strokeWidth = 2f)
         }
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(0.55f))
+    }
+}
+
+@Composable
+private fun WeightStatCol(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.8.sp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
     }
 }

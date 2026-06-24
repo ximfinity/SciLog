@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.scilog.app.core.util.DateTimeUtils
+import com.scilog.app.presentation.theme.LocalAppIsDark
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,6 +28,7 @@ fun DecayChartScreen(
     viewModel: DecayChartViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isDark = LocalAppIsDark.current
 
     Scaffold(
         topBar = {
@@ -76,14 +78,14 @@ fun DecayChartScreen(
                     StatChip(
                         label = "Peak (SS)",
                         value = "100%",
-                        valueColor = Color(0xFF2E7D32),
+                        valueColor = Color(0xFF2D5A27),
                         modifier = Modifier.weight(1f)
                     )
                     val troughPct = if (state.cMaxSS > 0) (state.cMinSS / state.cMaxSS * 100).toInt() else 0
                     StatChip(
                         label = "Trough (SS)",
                         value = "${troughPct}% of peak",
-                        valueColor = Color(0xFFE65100),
+                        valueColor = Color(0xFFB85C00),
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -130,7 +132,12 @@ fun DecayChartScreen(
 
             // PK chart
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (!isDark) Color(0xFFF5F0E7) else MaterialTheme.colorScheme.surface
+                    )
+                ) {
                     Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         DecayChartCanvas(
                             actualPoints    = state.actualPoints,
@@ -143,17 +150,24 @@ fun DecayChartScreen(
                             targetCminSS    = state.targetCminSS,
                             targetDoseMg    = state.targetDoseMg
                         )
-                        // Legend
-                        Row(
+                        // Legend — two rows to avoid horizontal overflow
+                        Column(
                             modifier = Modifier.padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            LegendItem("— Actual",    MaterialTheme.colorScheme.primary)
-                            LegendItem("- - Projected", MaterialTheme.colorScheme.primary.copy(0.45f))
-                            LegendItem("Cmax SS", Color(0xFF2E7D32))
-                            LegendItem("Cmin SS", Color(0xFFE65100))
-                            if (state.targetDoseMg != null) {
-                                LegendItem("Target (${state.targetDoseMg}mg)", Color(0xFF1565C0))
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                LegendItem("— Actual",      Color(0xFF4F6B57))
+                                LegendItem("- - Projected", Color(0xFF4F6B57).copy(alpha = 0.38f))
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                LegendItem("Peak SS",   Color(0xFF2D5A27))
+                                LegendItem("Trough SS", Color(0xFFB85C00))
+                                if (state.targetDoseMg != null) {
+                                    LegendItem(
+                                        "Target ${"%.0f".format(state.targetDoseMg)}mg",
+                                        Color(0xFF1A4A8A)
+                                    )
+                                }
                             }
                         }
                         if (state.symptoms.isNotEmpty()) SymptomLegend()
