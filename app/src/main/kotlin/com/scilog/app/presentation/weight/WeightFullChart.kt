@@ -125,7 +125,7 @@ fun WeightFullChart(
         val padL = 50f
         val padR = 16f
         val padT = 20f
-        val padB = 44f
+        val padB = 56f
         val chartW = size.width - padL - padR
         val chartH = size.height - padT - padB
 
@@ -233,19 +233,22 @@ fun WeightFullChart(
             drawText(gm, topLeft = Offset(padL + 3f, y - gm.size.height - 2f))
         }
 
-        // ── Shot markers ──────────────────────────────────────────────────
+        // ── Shot markers — staggered two-row labels to avoid overlap ─────
         val shotLabelStyle = TextStyle(fontSize = 7.5.sp, color = shotLineColor, fontWeight = FontWeight.SemiBold)
-        shots.filter { it.timestampMs in minTs..maxTs }.forEach { shot ->
+        val baselineY = padT + chartH
+        shots.filter { it.timestampMs in minTs..maxTs }.forEachIndexed { idx, shot ->
             val x = xOf(shot.timestampMs)
             drawLine(
                 color       = shotLineColor.copy(alpha = 0.6f),
                 start       = Offset(x, padT),
-                end         = Offset(x, padT + chartH),
+                end         = Offset(x, baselineY),
                 strokeWidth = 1.2f,
                 pathEffect  = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
             )
             val sm = textMeasurer.measure("${shot.doseMg}mg", shotLabelStyle)
-            drawText(sm, topLeft = Offset(x + 2f, padT + chartH + 20f))
+            // Alternate between two rows; center label on shot line
+            val labelY = if (idx % 2 == 0) baselineY + 14f else baselineY + 30f
+            drawText(sm, topLeft = Offset(x - sm.size.width / 2f, labelY))
         }
 
         // ── Projection line ───────────────────────────────────────────────

@@ -47,22 +47,6 @@ fun DecayChartScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Model info chip
-            item {
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        "2-compartment PK · ka=0.5/d · CL=0.8 L/d · V₂=10 L · V₃=12 L · Q=1.5 L/d",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
-            }
-
             // Stats row
             item {
                 Row(
@@ -189,6 +173,22 @@ fun DecayChartScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
+            // Model parameters (moved to bottom for cleaner header area)
+            item {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "2-compartment PK · ka=0.5/d · CL=0.8 L/d · V₂=10 L · V₃=12 L · Q=1.5 L/d",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
             }

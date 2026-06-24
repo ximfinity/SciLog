@@ -145,44 +145,46 @@ fun DecayChartCanvas(
             tickMs += weekMs
         }
 
-        // ── Cmax SS reference line ─────────────────────────────────────────
+        // ── Cmax SS reference line — label on LEFT (curve is low there) ────
         if (cMaxSS > 0.0001) {
             val refY = yOf(normOf(cMaxSS))
             drawLine(cMaxColor.copy(0.65f), Offset(padL, refY), Offset(padL + chartW, refY),
                 strokeWidth = 1.4f, pathEffect = ssRefDash)
             val lbl1 = textMeasurer.measure(
-                if (usePercent) "Peak" else "Cmax",
+                if (usePercent) "Peak SS" else "Cmax",
                 TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = cMaxColor)
             )
             val lbl2 = textMeasurer.measure(
-                if (usePercent) "100%" else "%.3f".format(cMaxSS),
+                if (usePercent) "100%" else "%.3f mg/L".format(cMaxSS),
                 TextStyle(fontSize = 7.sp, color = cMaxColor)
             )
-            val xAnchor = padL + chartW - max(lbl1.size.width, lbl2.size.width) - 5f
-            drawText(lbl1, topLeft = Offset(xAnchor, refY - lbl1.size.height - 1f))
-            drawText(lbl2, topLeft = Offset(xAnchor, refY + 1f))
+            val xL = padL + 5f
+            drawText(lbl1, topLeft = Offset(xL, refY - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(xL, refY + 2f))
         }
 
-        // ── Cmin SS reference line ─────────────────────────────────────────
+        // ── Cmin SS reference line — label on LEFT ─────────────────────────
         if (cMinSS > 0.0001) {
             val refY = yOf(normOf(cMinSS))
             drawLine(cMinColor.copy(0.65f), Offset(padL, refY), Offset(padL + chartW, refY),
                 strokeWidth = 1.4f, pathEffect = ssRefDash)
             val minPct = (cMinSS / cMaxSS * 100).roundToInt()
             val lbl1 = textMeasurer.measure(
-                if (usePercent) "Trough" else "Cmin",
+                if (usePercent) "Trough SS" else "Cmin",
                 TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = cMinColor)
             )
             val lbl2 = textMeasurer.measure(
-                if (usePercent) "${minPct}%" else "%.3f".format(cMinSS),
+                if (usePercent) "${minPct}%" else "%.3f mg/L".format(cMinSS),
                 TextStyle(fontSize = 7.sp, color = cMinColor)
             )
-            val xAnchor = padL + chartW - max(lbl1.size.width, lbl2.size.width) - 5f
-            drawText(lbl1, topLeft = Offset(xAnchor, refY - lbl1.size.height - 1f))
-            drawText(lbl2, topLeft = Offset(xAnchor, refY + 1f))
+            val xL = padL + 5f
+            drawText(lbl1, topLeft = Offset(xL, refY - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(xL, refY + 2f))
         }
 
-        // ── Target dose reference lines + shaded therapeutic band ─────────
+        // ── Target dose reference lines + shaded therapeutic band ──────────
+        // Target labels go on the RIGHT side; current-dose labels are on LEFT,
+        // so the two groups never compete for space.
         if (targetCmaxSS > 0.0001 && targetCminSS > 0.0001) {
             val yTop = yOf(normOf(targetCmaxSS))
             val yBot = yOf(normOf(targetCminSS))
@@ -192,40 +194,34 @@ fun DecayChartCanvas(
                 size = Size(chartW, yBot - yTop)
             )
         }
-        val doseSuffix = targetDoseMg?.let { " (%.1fmg)".format(it) } ?: ""
+        val doseTag = targetDoseMg?.let { "%.1fmg".format(it) } ?: ""
         if (targetCmaxSS > 0.0001) {
             val refY = yOf(normOf(targetCmaxSS))
             drawLine(targetColor.copy(0.55f), Offset(padL, refY), Offset(padL + chartW, refY),
                 strokeWidth = 1.4f, pathEffect = ssRefDash)
-            val lbl1 = textMeasurer.measure(
-                "T.Peak$doseSuffix",
-                TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor)
-            )
-            val lbl2 = textMeasurer.measure(
-                if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%" + " (%.3f mg/L)".format(targetCmaxSS)
-                else "%.3f mg/L".format(targetCmaxSS),
-                TextStyle(fontSize = 7.sp, color = targetColor)
-            )
-            val xAnchor = padL + chartW - max(lbl1.size.width, lbl2.size.width) - 5f
-            drawText(lbl1, topLeft = Offset(xAnchor, refY - lbl1.size.height - 1f))
-            drawText(lbl2, topLeft = Offset(xAnchor, refY + 1f))
+            val label = if (doseTag.isNotEmpty()) "T.Peak  $doseTag" else "T.Peak"
+            val pctStr = if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%" else "%.3f mg/L".format(targetCmaxSS)
+            val lbl1 = textMeasurer.measure(label,
+                TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor))
+            val lbl2 = textMeasurer.measure(pctStr,
+                TextStyle(fontSize = 7.sp, color = targetColor))
+            val xR = padL + chartW - max(lbl1.size.width, lbl2.size.width) - 6f
+            drawText(lbl1, topLeft = Offset(xR, refY - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(xR, refY + 2f))
         }
         if (targetCminSS > 0.0001) {
             val refY = yOf(normOf(targetCminSS))
             drawLine(targetColor.copy(0.45f), Offset(padL, refY), Offset(padL + chartW, refY),
                 strokeWidth = 1.4f, pathEffect = ssRefDash)
-            val lbl1 = textMeasurer.measure(
-                "T.Trough$doseSuffix",
-                TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor)
-            )
-            val lbl2 = textMeasurer.measure(
-                if (usePercent) "${normOf(targetCminSS).roundToInt()}%" + " (%.3f mg/L)".format(targetCminSS)
-                else "%.3f mg/L".format(targetCminSS),
-                TextStyle(fontSize = 7.sp, color = targetColor)
-            )
-            val xAnchor = padL + chartW - max(lbl1.size.width, lbl2.size.width) - 5f
-            drawText(lbl1, topLeft = Offset(xAnchor, refY - lbl1.size.height - 1f))
-            drawText(lbl2, topLeft = Offset(xAnchor, refY + 1f))
+            val label = if (doseTag.isNotEmpty()) "T.Trough  $doseTag" else "T.Trough"
+            val pctStr = if (usePercent) "${normOf(targetCminSS).roundToInt()}%" else "%.3f mg/L".format(targetCminSS)
+            val lbl1 = textMeasurer.measure(label,
+                TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor))
+            val lbl2 = textMeasurer.measure(pctStr,
+                TextStyle(fontSize = 7.sp, color = targetColor))
+            val xR = padL + chartW - max(lbl1.size.width, lbl2.size.width) - 6f
+            drawText(lbl1, topLeft = Offset(xR, refY - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(xR, refY + 2f))
         }
 
         // ── Filled area under actual curve ────────────────────────────────
