@@ -23,7 +23,7 @@ import com.scilog.app.presentation.theme.LocalAppIsDark
 import com.scilog.app.presentation.theme.SciLogTheme
 import com.scilog.app.presentation.weight.WeightScreen
 
-private val TAB_ROUTES = setOf("tab_home", "tab_chart", "tab_history", "tab_more")
+private val TAB_ROUTES = setOf("tab_home", "tab_chart", "tab_weight", "tab_history", "tab_more")
 
 sealed class Screen(val route: String) {
     object Auth     : Screen("auth")
@@ -82,7 +82,7 @@ fun SciLogNavGraph() {
                             onNavigateToLogShot     = { navController.navigate(Screen.LogShot.forNew()) },
                             onNavigateToEditShot    = { id -> navController.navigate(Screen.LogShot.forEdit(id)) },
                             onNavigateToShotHistory = { navController.navigate("tab_history") { launchSingleTop = true } },
-                            onNavigateToWeight      = { navController.navigate(Screen.Weight.route) },
+                            onNavigateToWeight      = { navController.navigate("tab_weight") { launchSingleTop = true } },
                             onNavigateToInventory   = { navController.navigate(Screen.Inventory.route) },
                             onNavigateToConfig      = { navController.navigate(Screen.Config.route) },
                             onNavigateToResources   = { navController.navigate(Screen.Resources.route) },
@@ -96,12 +96,17 @@ fun SciLogNavGraph() {
                         DecayChartScreen(onBack = null)
                     }
 
+                    // ── Tab: Weight ──────────────────────────────────────────
+                    composable("tab_weight") {
+                        WeightScreen(onBack = null)
+                    }
+
                     // ── Tab: History ─────────────────────────────────────────
                     composable("tab_history") {
                         HistoryTabScreen(
                             onNavigateToLogShot = { navController.navigate(Screen.LogShot.forNew()) },
                             onEditShot          = { id -> navController.navigate(Screen.LogShot.forEdit(id)) },
-                            onNavigateToWeight  = { navController.navigate(Screen.Weight.route) }
+                            onNavigateToWeight  = { navController.navigate("tab_weight") { launchSingleTop = true } }
                         )
                     }
 
@@ -127,9 +132,6 @@ fun SciLogNavGraph() {
                         })
                     ) {
                         LogShotScreen(onBack = { navController.popBackStack() })
-                    }
-                    composable(Screen.Weight.route) {
-                        WeightScreen(onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Inventory.route) {
                         InventoryScreen(onBack = { navController.popBackStack() })

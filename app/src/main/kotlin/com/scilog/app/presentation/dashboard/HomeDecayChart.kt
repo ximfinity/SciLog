@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
@@ -31,6 +32,7 @@ fun HomeDecayChart(
     projectedDosesMs: List<Long>,
     targetCmaxSS: Double = 0.0,
     targetCminSS: Double = 0.0,
+    targetDoseMg: Double? = null,
     modifier: Modifier = Modifier
 ) {
     if (actualPoints.isEmpty()) {
@@ -82,14 +84,30 @@ fun HomeDecayChart(
         fun xOf(ts: Long)     = padL + ((ts - minTs) / tsSpan * cW).toFloat()
         fun yOf(norm: Double) = padT + cH - (norm / maxNorm * cH).toFloat()
 
-        val labelStyle = TextStyle(fontSize = 7.5.sp, color = onSurface.copy(alpha = 0.45f))
+        val labelStyle = TextStyle(fontSize = 7.sp, color = onSurface.copy(alpha = 0.45f))
 
-        // ── Subtle grid lines ─────────────────────────────────────────────
+        // ── Y-axis grid lines + labels (matching full chart) ──────────────
         drawLine(onSurface.copy(0.15f), Offset(padL, padT + cH), Offset(padL + cW, padT + cH), 1.2f)
-        for (pct in listOf(50, 100)) {
-            if (!usePercent) break
-            val y = yOf(pct.toDouble())
-            drawLine(onSurface.copy(0.05f), Offset(padL, y), Offset(padL + cW, y), 0.8f)
+        if (usePercent) {
+            for (pct in listOf(25, 50, 75, 100)) {
+                val y = yOf(pct.toDouble())
+                drawLine(onSurface.copy(0.06f), Offset(padL, y), Offset(padL + cW, y), 0.8f)
+                val m = textMeasurer.measure("${pct}%", labelStyle)
+                drawText(m, topLeft = Offset(padL - m.size.width - 3f, y - m.size.height / 2f))
+            }
+            val unitM = textMeasurer.measure("% peak", TextStyle(fontSize = 6.5.sp, color = onSurface.copy(0.35f)))
+            drawText(unitM, topLeft = Offset(0f, padT - 8f))
+        } else {
+            for (i in 1..4) {
+                val frac = i.toFloat() / 4f
+                val y = padT + cH * (1f - frac)
+                drawLine(onSurface.copy(0.06f), Offset(padL, y), Offset(padL + cW, y), 0.8f)
+                val conc = maxNorm * frac
+                val m = textMeasurer.measure("%.2f".format(conc), labelStyle)
+                drawText(m, topLeft = Offset(padL - m.size.width - 3f, y - m.size.height / 2f))
+            }
+            val unitM = textMeasurer.measure("mg/L", TextStyle(fontSize = 6.5.sp, color = onSurface.copy(0.35f)))
+            drawText(unitM, topLeft = Offset(0f, padT - 8f))
         }
 
         // ── X-axis weekly ticks ───────────────────────────────────────────
@@ -107,9 +125,12 @@ fun HomeDecayChart(
         if (cMaxSS > 0.0001) {
             val y = yOf(normOf(cMaxSS))
             drawLine(cMaxColor.copy(0.5f), Offset(padL, y), Offset(padL + cW, y), 1.2f, pathEffect = ssRefDash)
-            val label = if (usePercent) "Peak" else "Cmax"
-            val m = textMeasurer.measure(label, TextStyle(fontSize = 6.5.sp, color = cMaxColor.copy(0.8f)))
-            drawText(m, topLeft = Offset(padL + cW - m.size.width - 2f, y - m.size.height - 1f))
+            val lbl1 = textMeasurer.measure(if (usePercent) "Peak" else "Cmax",
+                TextStyle(fontSize = 6.5.sp, fontWeight = FontWeight.SemiBold, color = cMaxColor.copy(0.8f)))
+            val lbl2 = textMeasurer.measure(if (usePercent) "100%" else "%.3f".format(cMaxSS),
+                TextStyle(fontSize = 6.sp, color = cMaxColor.copy(0.7f)))
+            drawText(lbl1, topLeft = Offset(padL + cW - lbl1.size.width - 2f, y - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(padL + cW - lbl2.size.width - 2f, y + 1f))
         }
 
         // ── Cmin SS reference line ────────────────────────────────────────
@@ -117,24 +138,47 @@ fun HomeDecayChart(
             val y = yOf(normOf(cMinSS))
             drawLine(cMinColor.copy(0.5f), Offset(padL, y), Offset(padL + cW, y), 1.2f, pathEffect = ssRefDash)
             val minPct = (cMinSS / cMaxSS * 100).roundToInt()
-            val label = if (usePercent) "${minPct}%" else "Cmin"
-            val m = textMeasurer.measure(label, TextStyle(fontSize = 6.5.sp, color = cMinColor.copy(0.8f)))
-            drawText(m, topLeft = Offset(padL + cW - m.size.width - 2f, y + 1f))
+            val lbl1 = textMeasurer.measure(if (usePercent) "Trough" else "Cmin",
+                TextStyle(fontSize = 6.5.sp, fontWeight = FontWeight.SemiBold, color = cMinColor.copy(0.8f)))
+            val lbl2 = textMeasurer.measure(if (usePercent) "${minPct}%" else "%.3f".format(cMinSS),
+                TextStyle(fontSize = 6.sp, color = cMinColor.copy(0.7f)))
+            drawText(lbl1, topLeft = Offset(padL + cW - lbl1.size.width - 2f, y - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(padL + cW - lbl2.size.width - 2f, y + 1f))
         }
 
-        // ── Target dose reference lines ───────────────────────────────────
+        // ── Target dose reference lines + therapeutic band ────────────────
         val targetColor = Color(0xFF1565C0)
+        if (targetCmaxSS > 0.0001 && targetCminSS > 0.0001) {
+            val yTop = yOf(normOf(targetCmaxSS))
+            val yBot = yOf(normOf(targetCminSS))
+            drawRect(
+                color = targetColor.copy(alpha = 0.07f),
+                topLeft = Offset(padL, yTop),
+                size = Size(cW, yBot - yTop)
+            )
+        }
+        val doseSuffix = targetDoseMg?.let { " %.1fmg".format(it) } ?: ""
         if (targetCmaxSS > 0.0001) {
             val y = yOf(normOf(targetCmaxSS))
             drawLine(targetColor.copy(0.5f), Offset(padL, y), Offset(padL + cW, y), 1.2f, pathEffect = ssRefDash)
-            val m = textMeasurer.measure("T.Peak", TextStyle(fontSize = 6.5.sp, color = targetColor.copy(0.8f)))
-            drawText(m, topLeft = Offset(padL - m.size.width - 2f, y - m.size.height - 1f))
+            val lbl1 = textMeasurer.measure("T.Peak$doseSuffix",
+                TextStyle(fontSize = 6.5.sp, fontWeight = FontWeight.SemiBold, color = targetColor.copy(0.8f)))
+            val lbl2 = textMeasurer.measure(
+                if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%" else "%.3f".format(targetCmaxSS),
+                TextStyle(fontSize = 6.sp, color = targetColor.copy(0.7f)))
+            drawText(lbl1, topLeft = Offset(padL - lbl1.size.width - 2f, y - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(padL - lbl2.size.width - 2f, y + 1f))
         }
         if (targetCminSS > 0.0001) {
             val y = yOf(normOf(targetCminSS))
             drawLine(targetColor.copy(0.4f), Offset(padL, y), Offset(padL + cW, y), 1.2f, pathEffect = ssRefDash)
-            val m = textMeasurer.measure("T.Trgh", TextStyle(fontSize = 6.5.sp, color = targetColor.copy(0.8f)))
-            drawText(m, topLeft = Offset(padL - m.size.width - 2f, y + 1f))
+            val lbl1 = textMeasurer.measure("T.Trgh$doseSuffix",
+                TextStyle(fontSize = 6.5.sp, fontWeight = FontWeight.SemiBold, color = targetColor.copy(0.8f)))
+            val lbl2 = textMeasurer.measure(
+                if (usePercent) "${normOf(targetCminSS).roundToInt()}%" else "%.3f".format(targetCminSS),
+                TextStyle(fontSize = 6.sp, color = targetColor.copy(0.7f)))
+            drawText(lbl1, topLeft = Offset(padL - lbl1.size.width - 2f, y - lbl1.size.height - 1f))
+            drawText(lbl2, topLeft = Offset(padL - lbl2.size.width - 2f, y + 1f))
         }
 
         // ── Filled area under actual curve ────────────────────────────────
@@ -180,9 +224,5 @@ fun HomeDecayChart(
             drawText(nm, topLeft = Offset(nowX + 2f, padT + 1f))
         }
 
-        // ── Y-axis unit label ─────────────────────────────────────────────
-        val unitLabel = if (usePercent) "%" else "mg/L"
-        val unitM = textMeasurer.measure(unitLabel, TextStyle(fontSize = 7.sp, color = onSurface.copy(0.35f), fontWeight = FontWeight.Medium))
-        drawText(unitM, topLeft = Offset(0f, padT - 8f))
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.*
@@ -31,6 +32,7 @@ fun DecayChartCanvas(
     showSymptoms: Boolean,
     targetCmaxSS: Double = 0.0,
     targetCminSS: Double = 0.0,
+    targetDoseMg: Double? = null,
     modifier: Modifier = Modifier
 ) {
     val allPoints     = actualPoints + projectedPoints
@@ -156,18 +158,30 @@ fun DecayChartCanvas(
             drawText(lbl2, topLeft = Offset(padL + chartW + 3f, y + 1f))
         }
 
-        // ── Target dose reference lines ───────────────────────────────────
+        // ── Target dose reference lines + shaded therapeutic band ─────────
         val targetColor = Color(0xFF1565C0)
+        if (targetCmaxSS > 0.0001 && targetCminSS > 0.0001) {
+            // Shaded band between trough and peak of target dose
+            val yTop = yOf(normOf(targetCmaxSS))
+            val yBot = yOf(normOf(targetCminSS))
+            drawRect(
+                color = targetColor.copy(alpha = 0.07f),
+                topLeft = Offset(padL, yTop),
+                size = Size(chartW, yBot - yTop)
+            )
+        }
+        val doseSuffix = targetDoseMg?.let { " (%.1fmg)".format(it) } ?: ""
         if (targetCmaxSS > 0.0001) {
             val y = yOf(normOf(targetCmaxSS))
             drawLine(targetColor.copy(0.55f), Offset(padL, y), Offset(padL + chartW, y),
                 strokeWidth = 1.4f, pathEffect = ssRefDash)
             val lbl1 = textMeasurer.measure(
-                "T.Peak",
+                "T.Peak$doseSuffix",
                 TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor)
             )
             val lbl2 = textMeasurer.measure(
-                if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%" else "%.3f".format(targetCmaxSS),
+                if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%  (%.3f mg/L)".format(targetCmaxSS)
+                else "%.3f mg/L".format(targetCmaxSS),
                 TextStyle(fontSize = 7.sp, color = targetColor)
             )
             drawText(lbl1, topLeft = Offset(padL + chartW + 3f, y - lbl1.size.height - 1f))
@@ -178,11 +192,12 @@ fun DecayChartCanvas(
             drawLine(targetColor.copy(0.45f), Offset(padL, y), Offset(padL + chartW, y),
                 strokeWidth = 1.4f, pathEffect = ssRefDash)
             val lbl1 = textMeasurer.measure(
-                "T.Trough",
+                "T.Trough$doseSuffix",
                 TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor)
             )
             val lbl2 = textMeasurer.measure(
-                if (usePercent) "${normOf(targetCminSS).roundToInt()}%" else "%.3f".format(targetCminSS),
+                if (usePercent) "${normOf(targetCminSS).roundToInt()}%  (%.3f mg/L)".format(targetCminSS)
+                else "%.3f mg/L".format(targetCminSS),
                 TextStyle(fontSize = 7.sp, color = targetColor)
             )
             drawText(lbl1, topLeft = Offset(padL + chartW + 3f, y - lbl1.size.height - 1f))

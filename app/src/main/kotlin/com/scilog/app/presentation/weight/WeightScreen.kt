@@ -2,6 +2,8 @@ package com.scilog.app.presentation.weight
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,26 +13,36 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.scilog.app.core.util.DateTimeUtils
 import com.scilog.app.domain.usecase.weight.GetWeightGuidanceUseCase
+import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WeightScreen(onBack: () -> Unit, viewModel: WeightViewModel = hiltViewModel()) {
+fun WeightScreen(onBack: (() -> Unit)? = null, viewModel: WeightViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope   = rememberCoroutineScope()
     val dateFmt = remember { SimpleDateFormat("MMM d, yyyy  h:mm a", Locale.US) }
+    val graphicsLayer = rememberGraphicsLayer()
 
     // Edit dialog
     if (state.editingWeight != null) {
@@ -64,22 +76,147 @@ fun WeightScreen(onBack: () -> Unit, viewModel: WeightViewModel = hiltViewModel(
         topBar = {
             TopAppBar(
                 title = { Text("Weight Tracker") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Back") } }
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Back") }
+                    }
+                },
+                actions = {
+                    if (state.allWeights.size >= 2) {
+                        IconButton(onClick = {
+                            scope.launch {
+                                val androidBitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
+                                val dir  = File(context.cacheDir, "exports").also { it.mkdirs() }
+                                val file = File(dir, "weight_chart_${System.currentTimeMillis()}.png")
+                                file.outputStream().use { out ->
+                                    androidBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                                }
+                                val uri: Uri = FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file
+                                )
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/png"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Share weight chart"))
+                            }
+                        }) {
+                            Icon(Icons.Outlined.Share, contentDescription = "Share chart")
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
+        val filteredWeights = remember(state.allWeights, state.selectedRange) {
+            weightsByRange(state.allWeights, state.selectedRange)
+        }
+        val filteredShots = remember(state.shots, state.selectedRange) {
+            if (filteredWeights.isEmpty()) emptyList()
+            else {
+                val minTs = filteredWeights.first().timestampMs
+                state.shots.filter { it.timestampMs >= minTs }
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Full chart (only if we have data)
+            if (filteredWeights.size >= 2) {
+                // Date range chips
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        WeightDateRange.entries.forEach { range ->
+                            FilterChip(
+                                selected = state.selectedRange == range,
+                                onClick  = { viewModel.setSelectedRange(range) },
+                                label    = { Text(range.label, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
+
+                // Toggle chips
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = state.showTrendLine,
+                            onClick  = { viewModel.toggleTrendLine() },
+                            label    = { Text("Trend", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        FilterChip(
+                            selected = state.showProjection,
+                            onClick  = { viewModel.toggleProjection() },
+                            label    = { Text("Projection", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        FilterChip(
+                            selected = state.showMinMax,
+                            onClick  = { viewModel.toggleMinMax() },
+                            label    = { Text("Min/Max", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                // The chart
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            WeightFullChart(
+                                weights         = filteredWeights,
+                                shots           = filteredShots,
+                                targetWeightLbs = state.targetWeightLbs,
+                                showTrendLine   = state.showTrendLine,
+                                showProjection  = state.showProjection,
+                                showMinMax      = state.showMinMax,
+                                graphicsLayer   = graphicsLayer,
+                                modifier        = Modifier.fillMaxWidth()
+                            )
+                            // Legend
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment     = Alignment.CenterVertically
+                            ) {
+                                ChartLegendDot(MaterialTheme.colorScheme.primary, "Daily avg")
+                                if (state.showTrendLine) ChartLegendDash(MaterialTheme.colorScheme.secondary, "Trend")
+                                if (state.showProjection) ChartLegendDash(Color(0xFF4F6B57), "Projection")
+                                if (state.targetWeightLbs != null) ChartLegendDash(Color(0xFF4F6B57), "Goal")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Guidance banner
+            state.guidance?.let { guidance ->
+                if (guidance.guidance != GetWeightGuidanceUseCase.Guidance.INSUFFICIENT_DATA) {
+                    item {
+                        val containerColor = when (guidance.guidance) {
+                            GetWeightGuidanceUseCase.Guidance.ON_TRACK -> MaterialTheme.colorScheme.secondaryContainer
+                            GetWeightGuidanceUseCase.Guidance.CONSIDER_DOSE_INCREASE -> MaterialTheme.colorScheme.errorContainer
+                            else -> MaterialTheme.colorScheme.tertiaryContainer
+                        }
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = containerColor)
+                        ) {
+                            Text(guidance.message, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+
             // Log entry card
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Log Weight", style = MaterialTheme.typography.titleMedium)
 
-                        // Date & time picker
                         OutlinedButton(
                             onClick = {
                                 val cal = Calendar.getInstance().apply { timeInMillis = state.timestampMs }
@@ -137,28 +274,9 @@ fun WeightScreen(onBack: () -> Unit, viewModel: WeightViewModel = hiltViewModel(
                 }
             }
 
-            // Guidance banner
-            state.guidance?.let { guidance ->
-                if (guidance.guidance != GetWeightGuidanceUseCase.Guidance.INSUFFICIENT_DATA) {
-                    item {
-                        val containerColor = when (guidance.guidance) {
-                            GetWeightGuidanceUseCase.Guidance.ON_TRACK -> MaterialTheme.colorScheme.secondaryContainer
-                            GetWeightGuidanceUseCase.Guidance.CONSIDER_DOSE_INCREASE -> MaterialTheme.colorScheme.errorContainer
-                            else -> MaterialTheme.colorScheme.tertiaryContainer
-                        }
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = containerColor)
-                        ) {
-                            Text(guidance.message, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-            }
-
             // History with edit + delete
             if (state.weights.isNotEmpty()) {
-                item { Text("History", style = MaterialTheme.typography.titleMedium) }
+                item { Text("Recent History", style = MaterialTheme.typography.titleMedium) }
                 items(state.weights) { weight ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -197,5 +315,31 @@ fun WeightScreen(onBack: () -> Unit, viewModel: WeightViewModel = hiltViewModel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ChartLegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(8.dp)) {
+            drawCircle(color = color, radius = 4f)
+        }
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(0.55f))
+    }
+}
+
+@Composable
+private fun ChartLegendDash(color: androidx.compose.ui.graphics.Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(width = 16.dp, height = 8.dp)) {
+            drawLine(color = color, start = Offset(0f, size.height / 2), end = Offset(size.width, size.height / 2), strokeWidth = 2f)
+        }
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(0.55f))
     }
 }

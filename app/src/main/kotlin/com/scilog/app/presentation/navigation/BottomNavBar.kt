@@ -15,10 +15,11 @@ private data class BottomNavItem(
 )
 
 private val navItems = listOf(
-    BottomNavItem("tab_home",    "Home",    Icons.Outlined.Home),
-    BottomNavItem("tab_chart",   "Chart",   Icons.Outlined.ShowChart),
-    BottomNavItem("tab_history", "History", Icons.Outlined.List),
-    BottomNavItem("tab_more",    "More",    Icons.Outlined.MoreHoriz)
+    BottomNavItem("tab_home",    "Home",     Icons.Outlined.Home),
+    BottomNavItem("tab_chart",   "PK Chart", Icons.Outlined.ShowChart),
+    BottomNavItem("tab_weight",  "Weight",   Icons.Outlined.FitnessCenter),
+    BottomNavItem("tab_history", "History",  Icons.Outlined.List),
+    BottomNavItem("tab_more",    "More",     Icons.Outlined.MoreHoriz)
 )
 
 @Composable

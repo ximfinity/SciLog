@@ -24,7 +24,7 @@ data class ChartUiState(
     val targetCmaxSS: Double = 0.0,
     val targetCminSS: Double = 0.0,
     val targetDoseMg: Double? = null,
-    val showSymptoms: Boolean = true,
+    val targetDoseInput: String = "",
     val isLoading: Boolean = true
 )
 
@@ -40,31 +40,31 @@ class DecayChartViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ChartUiState())
     val uiState: StateFlow<ChartUiState> = _uiState.asStateFlow()
 
-    private val _showSymptoms = MutableStateFlow(true)
+    private val _targetDoseInput = MutableStateFlow("")
 
     init {
         viewModelScope.launch {
             val fromMs = System.currentTimeMillis() - 56L * 86_400_000L  // 8 weeks history
             configRepository.configFlow.flatMapLatest { config ->
+                _targetDoseInput.value = config.targetDoseMg?.toString() ?: ""
                 combine(
                     shotRepository.getShotsFrom(fromMs),
                     symptomRepository.getSymptomsFrom(fromMs),
                     weightRepository.getRecentWeights(1),
-                    _showSymptoms
-                ) { shots, symptoms, weights, showSymptoms ->
-                    val nowMs       = System.currentTimeMillis()
-                    val cycleHours  = config.cycleHours.toDouble()
-                    val cycleDays   = cycleHours / 24.0
-                    val historical  = shots.map { it.timestampMs to it.doseMg }
-                    val lastDoseMg  = shots.firstOrNull()?.doseMg ?: 5.0
-                    val baseParams  = TwoCompartmentPKEngine.Params.forMedication(
+                    _targetDoseInput
+                ) { shots, symptoms, weights, targetInput ->
+                    val nowMs      = System.currentTimeMillis()
+                    val cycleHours = config.cycleHours.toDouble()
+                    val cycleDays  = cycleHours / 24.0
+                    val historical = shots.map { it.timestampMs to it.doseMg }
+                    val lastDoseMg = shots.firstOrNull()?.doseMg ?: 5.0
+                    val baseParams = TwoCompartmentPKEngine.Params.forMedication(
                         shots.firstOrNull()?.medicationType ?: com.scilog.app.domain.model.MedicationType.SEMAGLUTIDE
                     )
                     val pkParams = weights.firstOrNull()?.weightKg
                         ?.let { baseParams.scaledForWeight(it) }
                         ?: baseParams
 
-                    // Project 3 upcoming doses at the configured cycle interval
                     val projected: List<Pair<Long, Double>> = if (shots.isNotEmpty()) {
                         val intervalMs = (cycleHours * 3_600_000.0).toLong()
                         var nextMs = shots.first().timestampMs + intervalMs
@@ -75,7 +75,8 @@ class DecayChartViewModel @Inject constructor(
                     val result = TwoCompartmentPKEngine.simulate(historical, projected, nowMs, pkParams)
                     val (cMax, cMin) = TwoCompartmentPKEngine.steadyState(lastDoseMg, cycleDays, pkParams)
 
-                    val (targetCmax, targetCmin) = config.targetDoseMg?.let { tdMg ->
+                    val previewDoseMg = targetInput.toDoubleOrNull() ?: config.targetDoseMg
+                    val (targetCmax, targetCmin) = previewDoseMg?.let { tdMg ->
                         TwoCompartmentPKEngine.steadyState(tdMg, cycleDays, pkParams)
                     } ?: (0.0 to 0.0)
 
@@ -88,8 +89,8 @@ class DecayChartViewModel @Inject constructor(
                         cMinSS          = cMin,
                         targetCmaxSS    = targetCmax,
                         targetCminSS    = targetCmin,
-                        targetDoseMg    = config.targetDoseMg,
-                        showSymptoms    = showSymptoms,
+                        targetDoseMg    = previewDoseMg,
+                        targetDoseInput = targetInput,
                         isLoading       = false
                     )
                 }
@@ -97,5 +98,12 @@ class DecayChartViewModel @Inject constructor(
         }
     }
 
-    fun toggleSymptomOverlay() { _showSymptoms.value = !_showSymptoms.value }
+    fun setTargetDoseInput(s: String) { _targetDoseInput.value = s }
+
+    fun saveTargetDose() {
+        viewModelScope.launch {
+            val mg = _targetDoseInput.value.toDoubleOrNull()
+            configRepository.updateTargetDose(mg)
+        }
+    }
 }

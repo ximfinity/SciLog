@@ -1,0 +1,321 @@
+package com.scilog.app.presentation.weight
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.text.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.scilog.app.domain.model.Shot
+import com.scilog.app.domain.model.Weight
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.math.*
+
+// ── Daily aggregation ─────────────────────────────────────────────────────────
+
+data class DailyStats(
+    val dayMs: Long,
+    val avgLbs: Double,
+    val minLbs: Double,
+    val maxLbs: Double,
+    val entries: List<Weight>
+)
+
+fun weightsByRange(weights: List<Weight>, range: WeightDateRange): List<Weight> {
+    if (range.days == null) return weights.sortedBy { it.timestampMs }
+    val cutoff = System.currentTimeMillis() - range.days * 86_400_000L
+    return weights.filter { it.timestampMs >= cutoff }.sortedBy { it.timestampMs }
+}
+
+fun dailyStats(weights: List<Weight>): List<DailyStats> {
+    val cal = Calendar.getInstance()
+    return weights
+        .groupBy { w ->
+            cal.timeInMillis = w.timestampMs
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+            cal.timeInMillis
+        }
+        .map { (dayMs, entries) ->
+            DailyStats(
+                dayMs   = dayMs,
+                avgLbs  = entries.sumOf { it.weightLbs } / entries.size,
+                minLbs  = entries.minOf { it.weightLbs },
+                maxLbs  = entries.maxOf { it.weightLbs },
+                entries = entries
+            )
+        }
+        .sortedBy { it.dayMs }
+}
+
+// ── Linear regression → (slope mg/ms, intercept) ─────────────────────────────
+
+data class Regression(val slope: Double, val intercept: Double) {
+    fun yAt(x: Double) = slope * x + intercept
+    fun xAt(y: Double) = if (abs(slope) < 1e-20) null else (y - intercept) / slope
+}
+
+fun linearRegression(points: List<Pair<Double, Double>>): Regression? {
+    val n = points.size.toDouble()
+    if (n < 2) return null
+    val xMean = points.sumOf { it.first } / n
+    val yMean = points.sumOf { it.second } / n
+    val denom = points.sumOf { (it.first - xMean).pow(2) }
+    if (denom < 1e-20) return null
+    val slope = points.sumOf { (it.first - xMean) * (it.second - yMean) } / denom
+    return Regression(slope, yMean - slope * xMean)
+}
+
+// ── Main composable ───────────────────────────────────────────────────────────
+
+@Composable
+fun WeightFullChart(
+    weights: List<Weight>,
+    shots: List<Shot>,
+    targetWeightLbs: Double?,
+    showTrendLine: Boolean,
+    showProjection: Boolean,
+    showMinMax: Boolean,
+    graphicsLayer: GraphicsLayer,
+    modifier: Modifier = Modifier,
+    height: Dp = 240.dp
+) {
+    if (weights.isEmpty()) return
+
+    val primaryColor   = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val tertiaryColor  = MaterialTheme.colorScheme.tertiary
+    val onSurface      = MaterialTheme.colorScheme.onSurface
+    val goalColor      = Color(0xFF4F6B57)
+    val textMeasurer   = rememberTextMeasurer()
+    val dateFmt        = remember { SimpleDateFormat("M/d", Locale.US) }
+
+    val sorted  = weights.sortedBy { it.timestampMs }
+    val daily   = dailyStats(sorted)
+    val regPts  = daily.map { it.dayMs.toDouble() to it.avgLbs }
+    val regression = if (showTrendLine || showProjection) linearRegression(regPts) else null
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .drawWithContent {
+                graphicsLayer.record { this@drawWithContent.drawContent() }
+                drawLayer(graphicsLayer)
+            }
+    ) {
+        val padL = 50f
+        val padR = 16f
+        val padT = 20f
+        val padB = 32f
+        val chartW = size.width - padL - padR
+        val chartH = size.height - padT - padB
+
+        val minTs = sorted.first().timestampMs
+        val maxTs = maxOf(sorted.last().timestampMs, System.currentTimeMillis())
+        val tsRange = (maxTs - minTs).toDouble().coerceAtLeast(1.0)
+
+        val allLbs = sorted.map { it.weightLbs }
+        val rawMin = allLbs.min()
+        val rawMax = allLbs.max()
+        // Include goal weight in Y range if visible
+        val wMinRaw = if (targetWeightLbs != null) minOf(rawMin, targetWeightLbs) else rawMin
+        val wMaxRaw = if (targetWeightLbs != null) maxOf(rawMax, targetWeightLbs) else rawMax
+        val wPad    = (wMaxRaw - wMinRaw) * 0.12 + 1.0
+        val wMin    = wMinRaw - wPad
+        val wMax    = wMaxRaw + wPad
+        val wRange  = (wMax - wMin).coerceAtLeast(0.1)
+
+        fun xOf(ts: Long)      = padL + ((ts - minTs) / tsRange * chartW).toFloat()
+        fun yOf(lbs: Double)   = padT + chartH - ((lbs - wMin) / wRange * chartH).toFloat()
+
+        // ── Y-axis grid lines and labels ──────────────────────────────────
+        val labelStyle = TextStyle(fontSize = 9.sp, color = onSurface.copy(alpha = 0.45f))
+        val nGridLines = 4
+        val gridStep   = (wMax - wMin) / nGridLines
+        for (i in 0..nGridLines) {
+            val lbs = wMin + i * gridStep
+            val y   = yOf(lbs)
+            drawLine(
+                color       = onSurface.copy(alpha = 0.07f),
+                start       = Offset(padL, y),
+                end         = Offset(padL + chartW, y),
+                strokeWidth = 0.8f
+            )
+            val m = textMeasurer.measure("%.0f".format(lbs), labelStyle)
+            drawText(m, topLeft = Offset(padL - m.size.width - 4f, y - m.size.height / 2f))
+        }
+
+        // X-axis baseline
+        drawLine(
+            color       = onSurface.copy(alpha = 0.2f),
+            start       = Offset(padL, padT + chartH),
+            end         = Offset(padL + chartW, padT + chartH),
+            strokeWidth = 1.2f
+        )
+
+        // ── X-axis weekly ticks and labels ────────────────────────────────
+        val weekMs  = 7L * 86_400_000L
+        val tickStyle = TextStyle(fontSize = 8.sp, color = onSurface.copy(alpha = 0.4f))
+        var tickMs = minTs
+        while (tickMs <= maxTs) {
+            val tx = xOf(tickMs)
+            drawLine(onSurface.copy(0.15f), Offset(tx, padT + chartH), Offset(tx, padT + chartH + 4f), 1f)
+            val m = textMeasurer.measure(dateFmt.format(Date(tickMs)), tickStyle)
+            drawText(m, topLeft = Offset(tx - m.size.width / 2f, padT + chartH + 5f))
+            tickMs += weekMs
+        }
+
+        // ── Goal weight horizontal line ───────────────────────────────────
+        if (targetWeightLbs != null) {
+            val y = yOf(targetWeightLbs)
+            drawLine(
+                color       = goalColor.copy(alpha = 0.7f),
+                start       = Offset(padL, y),
+                end         = Offset(padL + chartW, y),
+                strokeWidth = 1.5f,
+                pathEffect  = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
+            )
+            val gm = textMeasurer.measure(
+                "Goal  %.0f".format(targetWeightLbs),
+                TextStyle(fontSize = 8.sp, fontWeight = FontWeight.Medium, color = goalColor)
+            )
+            drawText(gm, topLeft = Offset(padL + 3f, y - gm.size.height - 2f))
+        }
+
+        // ── Shot markers ──────────────────────────────────────────────────
+        val shotStyle = TextStyle(fontSize = 7.5.sp, color = tertiaryColor, fontWeight = FontWeight.SemiBold)
+        shots.filter { it.timestampMs in minTs..maxTs }.forEach { shot ->
+            val x = xOf(shot.timestampMs)
+            drawLine(
+                color       = tertiaryColor.copy(alpha = 0.6f),
+                start       = Offset(x, padT),
+                end         = Offset(x, padT + chartH),
+                strokeWidth = 1.2f,
+                pathEffect  = PathEffect.dashPathEffect(floatArrayOf(4f, 4f))
+            )
+            val sm = textMeasurer.measure("${shot.doseMg}mg", shotStyle)
+            drawText(sm, topLeft = Offset(x + 2f, padT + 2f))
+        }
+
+        // ── Projection line ───────────────────────────────────────────────
+        if (showProjection && regression != null && regression.slope < 0) {
+            val lastDay = daily.last()
+            val projEndMs: Long = if (targetWeightLbs != null) {
+                val goalMs = regression.xAt(targetWeightLbs)
+                if (goalMs != null && goalMs > lastDay.dayMs) minOf(goalMs.toLong(), maxTs + 90L * 86_400_000L)
+                else maxTs + 90L * 86_400_000L
+            } else {
+                maxTs + 90L * 86_400_000L
+            }
+            val projStartX = xOf(lastDay.dayMs)
+            val projStartY = yOf(lastDay.avgLbs)
+            val projEndLbs = regression.yAt(projEndMs.toDouble()).coerceIn(wMin, wMax)
+            val projEndX   = xOf(projEndMs)
+            val projEndY   = yOf(projEndLbs)
+            val projPath   = Path().apply {
+                moveTo(projStartX, projStartY)
+                lineTo(projEndX.coerceIn(padL, padL + chartW), projEndY)
+            }
+            drawPath(
+                path   = projPath,
+                color  = goalColor.copy(alpha = 0.5f),
+                style  = Stroke(
+                    width      = 1.8f,
+                    cap        = StrokeCap.Round,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+                )
+            )
+        }
+
+        // ── Min/max error bars ────────────────────────────────────────────
+        if (showMinMax) {
+            daily.forEach { ds ->
+                if (ds.minLbs < ds.maxLbs) {
+                    val x     = xOf(ds.dayMs)
+                    val yTop  = yOf(ds.maxLbs)
+                    val yBot  = yOf(ds.minLbs)
+                    drawLine(
+                        color       = primaryColor.copy(alpha = 0.3f),
+                        start       = Offset(x, yTop),
+                        end         = Offset(x, yBot),
+                        strokeWidth = 2f,
+                        cap         = StrokeCap.Round
+                    )
+                    drawLine(primaryColor.copy(0.3f), Offset(x - 3f, yTop), Offset(x + 3f, yTop), 1.5f)
+                    drawLine(primaryColor.copy(0.3f), Offset(x - 3f, yBot), Offset(x + 3f, yBot), 1.5f)
+                }
+            }
+        }
+
+        // ── Individual scatter dots ───────────────────────────────────────
+        sorted.forEach { w ->
+            drawCircle(
+                color  = primaryColor.copy(alpha = 0.25f),
+                radius = 3f,
+                center = Offset(xOf(w.timestampMs), yOf(w.weightLbs))
+            )
+        }
+
+        // ── Trend line (linear regression) ───────────────────────────────
+        if (showTrendLine && regression != null && daily.size >= 2) {
+            val x0 = xOf(minTs)
+            val x1 = xOf(maxTs)
+            val y0 = yOf(regression.yAt(minTs.toDouble()).coerceIn(wMin, wMax))
+            val y1 = yOf(regression.yAt(maxTs.toDouble()).coerceIn(wMin, wMax))
+            drawLine(
+                color       = secondaryColor.copy(alpha = 0.7f),
+                start       = Offset(x0, y0),
+                end         = Offset(x1, y1),
+                strokeWidth = 1.8f,
+                pathEffect  = PathEffect.dashPathEffect(floatArrayOf(12f, 6f))
+            )
+        }
+
+        // ── Main daily-average line ───────────────────────────────────────
+        if (daily.size > 1) {
+            val fillPath = Path().apply {
+                moveTo(xOf(daily.first().dayMs), yOf(daily.first().avgLbs))
+                daily.drop(1).forEach { lineTo(xOf(it.dayMs), yOf(it.avgLbs)) }
+                lineTo(xOf(daily.last().dayMs), padT + chartH)
+                lineTo(xOf(daily.first().dayMs), padT + chartH)
+                close()
+            }
+            drawPath(
+                fillPath,
+                Brush.verticalGradient(
+                    listOf(primaryColor.copy(0.22f), primaryColor.copy(0.02f)),
+                    startY = padT, endY = padT + chartH
+                )
+            )
+            val linePath = Path().apply {
+                moveTo(xOf(daily.first().dayMs), yOf(daily.first().avgLbs))
+                daily.drop(1).forEach { lineTo(xOf(it.dayMs), yOf(it.avgLbs)) }
+            }
+            drawPath(linePath, primaryColor, style = Stroke(2.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+
+        // ── Start and end dot bookmarks ───────────────────────────────────
+        val startDot = daily.first()
+        val endDot   = daily.last()
+        drawDot(xOf(startDot.dayMs), yOf(startDot.avgLbs), onSurface, primaryColor, 6f)
+        drawDot(xOf(endDot.dayMs), yOf(endDot.avgLbs), primaryColor, Color.White, 7f)
+    }
+}
+
+private fun DrawScope.drawDot(x: Float, y: Float, outerColor: Color, innerColor: Color, r: Float) {
+    drawCircle(outerColor, radius = r, center = Offset(x, y))
+    drawCircle(innerColor, radius = r * 0.55f, center = Offset(x, y))
+}

@@ -3,15 +3,18 @@ package com.scilog.app.presentation.chart
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,14 +37,6 @@ fun DecayChartScreen(
                         IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, "Back") }
                     }
                 },
-                actions = {
-                    IconButton(onClick = { viewModel.toggleSymptomOverlay() }) {
-                        Icon(
-                            if (state.showSymptoms) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-                            "Toggle symptoms"
-                        )
-                    }
-                }
             )
         }
     ) { innerPadding ->
@@ -94,6 +89,45 @@ fun DecayChartScreen(
                 }
             }
 
+            // Target dose input
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Target dose:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    OutlinedTextField(
+                        value = state.targetDoseInput,
+                        onValueChange = { viewModel.setTargetDoseInput(it) },
+                        suffix = { Text("mg") },
+                        singleLine = true,
+                        modifier = Modifier.width(110.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { viewModel.saveTargetDose() })
+                    )
+                    TextButton(
+                        onClick = { viewModel.saveTargetDose() },
+                        enabled = state.targetDoseInput.toDoubleOrNull() != null
+                    ) { Text("Set") }
+                    if (state.targetDoseMg != null) {
+                        Text(
+                            "(saved: %.1f mg)".format(state.targetDoseMg),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(0.5f)
+                        )
+                    }
+                }
+            }
+
             // PK chart
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -104,9 +138,10 @@ fun DecayChartScreen(
                             cMaxSS          = state.cMaxSS,
                             cMinSS          = state.cMinSS,
                             symptoms        = state.symptoms,
-                            showSymptoms    = state.showSymptoms,
+                            showSymptoms    = state.symptoms.isNotEmpty(),
                             targetCmaxSS    = state.targetCmaxSS,
-                            targetCminSS    = state.targetCminSS
+                            targetCminSS    = state.targetCminSS,
+                            targetDoseMg    = state.targetDoseMg
                         )
                         // Legend
                         Row(
@@ -121,7 +156,7 @@ fun DecayChartScreen(
                                 LegendItem("Target (${state.targetDoseMg}mg)", Color(0xFF1565C0))
                             }
                         }
-                        if (state.showSymptoms && state.symptoms.isNotEmpty()) SymptomLegend()
+                        if (state.symptoms.isNotEmpty()) SymptomLegend()
                     }
                 }
             }
@@ -145,7 +180,7 @@ fun DecayChartScreen(
             }
 
             // Symptom list
-            if (state.showSymptoms && state.symptoms.isNotEmpty()) {
+            if (state.symptoms.isNotEmpty()) {
                 item { Text("Logged Symptoms", style = MaterialTheme.typography.titleMedium) }
                 items(state.symptoms) { symptom ->
                     SymptomRow(symptom = symptom)
