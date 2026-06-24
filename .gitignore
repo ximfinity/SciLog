@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Local config (has SDK path — never commit)
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+captures/
+.externalNativeBuild/
+.cxx/
+*.orig
+
+# Kotlin build cache
+.kotlin/
+
+# Key stores (never commit signing keys)
+*.jks
+*.keystore
+
+# Proguard mapping (generated on release)
+app/proguard-output/
+
+# macOS
+.DS_Store
+Thumbs.db

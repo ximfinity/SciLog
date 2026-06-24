@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SciLog</string>
+    <string name="biometric_prompt_title">Unlock SciLog</string>
+    <string name="biometric_prompt_subtitle">Confirm your identity to continue</string>
+    <string name="biometric_prompt_negative">Cancel</string>
+</resources>
