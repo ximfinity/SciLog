@@ -180,7 +180,7 @@ fun DecayChartCanvas(
                 TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor)
             )
             val lbl2 = textMeasurer.measure(
-                if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%  (%.3f mg/L)".format(targetCmaxSS)
+                if (usePercent) "${normOf(targetCmaxSS).roundToInt()}%" + " (%.3f mg/L)".format(targetCmaxSS)
                 else "%.3f mg/L".format(targetCmaxSS),
                 TextStyle(fontSize = 7.sp, color = targetColor)
             )
@@ -196,7 +196,7 @@ fun DecayChartCanvas(
                 TextStyle(fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = targetColor)
             )
             val lbl2 = textMeasurer.measure(
-                if (usePercent) "${normOf(targetCminSS).roundToInt()}%  (%.3f mg/L)".format(targetCminSS)
+                if (usePercent) "${normOf(targetCminSS).roundToInt()}%" + " (%.3f mg/L)".format(targetCminSS)
                 else "%.3f mg/L".format(targetCminSS),
                 TextStyle(fontSize = 7.sp, color = targetColor)
             )

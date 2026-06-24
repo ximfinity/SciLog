@@ -114,7 +114,7 @@ fun WeightScreen(onBack: (() -> Unit)? = null, viewModel: WeightViewModel = hilt
         val filteredWeights = remember(state.allWeights, state.selectedRange) {
             weightsByRange(state.allWeights, state.selectedRange)
         }
-        val filteredShots = remember(state.shots, state.selectedRange) {
+        val filteredShots = remember(state.shots, state.allWeights, state.selectedRange) {
             if (filteredWeights.isEmpty()) emptyList()
             else {
                 val minTs = filteredWeights.first().timestampMs
